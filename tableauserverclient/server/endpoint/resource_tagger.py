@@ -4,7 +4,9 @@ from .. import RequestFactory
 from ...models.tag_item import TagItem
 import logging
 import copy
-import urllib.parse
+
+# import urllib.parse
+# Not using urllib.parse because unsupported by Python 2.7
 
 logger = logging.getLogger('tableau.endpoint.resource_tagger')
 
@@ -26,7 +28,7 @@ class _ResourceTagger(Endpoint):
 
     # Delete a resource's tag by name
     def _delete_tag(self, baseurl, resource_id, tag_name):
-        encoded_tag_name = urllib.parse.quote(tag_name)
+        encoded_tag_name = self._quote(tag_name)
         url = "{0}/{1}/tags/{2}".format(baseurl, resource_id, encoded_tag_name)
 
         try:
@@ -36,6 +38,45 @@ class _ResourceTagger(Endpoint):
                 error = "Deleting tags from this resource type is only available with REST API version 2.6 and later."
                 raise EndpointUnavailableError(error)
             raise  # Some other error
+
+    def _quote(self, s, safe='/'):
+        """quote('abc def') -> 'abc%20def'
+
+        Each part of a URL, e.g. the path info, the query, etc., has a
+        different set of reserved characters that must be quoted.
+
+        RFC 2396 Uniform Resource Identifiers (URI): Generic Syntax lists
+        the following reserved characters.
+
+        reserved    = ";" | "/" | "?" | ":" | "@" | "&" | "=" | "+" |
+                      "$" | ","
+
+        Each of these characters is reserved in some component of a URL,
+        but not necessarily in all of them.
+
+        By default, the quote function is intended for quoting the path
+        section of a URL.  Thus, it will not encode '/'.  This character
+        is reserved, but in typical usage the quote function is being
+        called on a path where the existing slash characters are used as
+        reserved characters.
+        """
+        # fastpath
+        if not s:
+            if s is None:
+                raise TypeError('None object cannot be quoted')
+            return s
+        cachekey = (safe, always_safe)
+        try:
+            (quoter, safe) = _safe_quoters[cachekey]
+        except KeyError:
+            safe_map = _safe_map.copy()
+            safe_map.update([(c, c) for c in safe])
+            quoter = safe_map.__getitem__
+            safe = always_safe + safe
+            _safe_quoters[cachekey] = (quoter, safe)
+        if not s.rstrip(safe):
+            return s
+        return ''.join(map(quoter, s))
 
     # Remove and add tags to match the resource item's tag set
     def update_tags(self, baseurl, resource_item):
